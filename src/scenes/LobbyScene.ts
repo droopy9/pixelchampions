@@ -84,7 +84,7 @@ export class LobbyScene extends Phaser.Scene {
       .rectangle(cx, 230, 320, 110, 0x0a1830, 0.85)
       .setStrokeStyle(2, 0xffcc33, 0.7);
     this.add
-      .text(cx, 198, 'NEXT RACE IN', {
+      .text(cx, 198, 'ESTIMATED WAIT', {
         fontFamily: 'monospace',
         fontSize: '12px',
         color: '#aaccff'
@@ -218,20 +218,20 @@ export class LobbyScene extends Phaser.Scene {
 
   private runFrame(time: number) {
     if (this.latest) {
+      const remaining = Math.max(0, this.latest.nextRaceAt - Date.now());
+      this.countdownText.setText(fmt(remaining));
+      if (remaining < 5_000) this.countdownText.setColor('#ff6666');
+      else if (remaining < 15_000) this.countdownText.setColor('#ffaa33');
+      else this.countdownText.setColor('#ffcc33');
+
       if (this.latest.phase === 'lobby') {
-        this.countdownText.setText(fmt(this.latest.remainingMs));
-        if (this.latest.remainingMs < 5_000) this.countdownText.setColor('#ff6666');
-        else if (this.latest.remainingMs < 15_000) this.countdownText.setColor('#ffaa33');
-        else this.countdownText.setColor('#ffcc33');
         this.subText.setText('Bots will fill empty slots when the race starts.');
         this.subText.setColor('#9bb6ff');
       } else {
-        this.countdownText.setText('-- : --');
-        this.countdownText.setColor('#aaccff');
         const msg =
           this.latest.phase === 'countdown' ? 'Race starting now…' :
-          this.latest.phase === 'racing' ? 'RACE IN PROGRESS — you will join the next race' :
-          'Race finished — next lobby starting soon';
+          this.latest.phase === 'racing' ? 'RACE IN PROGRESS — estimated wait until next race' :
+          'Race finished — next lobby opens in';
         this.subText.setText(msg);
         this.subText.setColor('#ffaa33');
       }

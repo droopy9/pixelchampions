@@ -10,6 +10,7 @@ export interface LobbyPlayer {
 export interface LobbyState {
   phase: 'lobby' | 'countdown' | 'racing' | 'results';
   remainingMs: number;
+  nextRaceAt: number;
   waitTotalMs: number;
   players: LobbyPlayer[];
   maxRacers: number;

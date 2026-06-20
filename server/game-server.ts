@@ -83,11 +83,32 @@ interface ResultPayload {
   winnerIsBot: boolean;
 }
 
+function estimateNextRaceAt(): number {
+  const now = Date.now();
+  if (phase === 'lobby') return lobbyEndsAt;
+  if (phase === 'countdown') return countdownStart + 4 * 900;
+  if (phase === 'racing') {
+    // If at least one racer has crossed the finish, we know the result phase
+    // is about to start (server gives a 2s grace). Otherwise pessimistically
+    // assume the 3-min hard race cap is hit.
+    const firstFinish = racers
+      .filter(r => r.finishTime !== null)
+      .reduce((m, r) => Math.min(m, r.finishTime as number), Number.POSITIVE_INFINITY);
+    const raceEndsAt = firstFinish === Number.POSITIVE_INFINITY
+      ? raceStartTime + 180_000
+      : firstFinish + 2_000;
+    return raceEndsAt + RESULT_HOLD_MS + LOBBY_NEXT_MS;
+  }
+  if (phase === 'results') return resultEndsAt + LOBBY_NEXT_MS;
+  return now;
+}
+
 function broadcastLobby() {
   const remaining = Math.max(0, lobbyEndsAt - Date.now());
   io.emit('lobbyState', {
     phase,
     remainingMs: remaining,
+    nextRaceAt: estimateNextRaceAt(),
     waitTotalMs: raceWasFirst ? LOBBY_FIRST_MS : LOBBY_NEXT_MS,
     players: Array.from(players.values()).map(p => ({
       id: p.id,
@@ -316,10 +337,9 @@ setInterval(() => {
   }
 }, TICK_MS);
 
-// Periodic lobby broadcasts so clients see the timer update
-setInterval(() => {
-  if (phase === 'lobby' || phase === 'countdown') broadcastLobby();
-}, 500);
+// Periodic lobby broadcasts so the estimate keeps ticking for any client
+// sitting in the lobby (including mid-race joiners who are waiting).
+setInterval(() => broadcastLobby(), 500);
 
 httpServer.listen(PORT, '0.0.0.0', () => {
   console.log(`[pixel-champs server] listening on http://0.0.0.0:${PORT}`);

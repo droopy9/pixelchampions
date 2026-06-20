@@ -5,7 +5,10 @@
       "Bash(npm run *)",
       "Bash(npx tsc *)",
       "Bash(lsof -ti:5173)",
-      "Bash(xargs -r kill)"
+      "Bash(xargs -r kill)",
+      "Bash(git add *)",
+      "Bash(git commit -m 'Lobby shows estimated wait time during all phases *)",
+      "Bash(git push *)"
     ]
   }
 }
