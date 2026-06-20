@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(curl *)",
+      "Bash(npm run *)",
+      "Bash(npx tsc *)",
+      "Bash(lsof -ti:5173)",
+      "Bash(xargs -r kill)"
+    ]
+  }
+}

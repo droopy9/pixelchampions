@@ -1,0 +1,17 @@
+# Render Blueprint — one-click deploy of the game server.
+# After Render imports this file, it provisions a free web service that runs
+# the Socket.IO + simulation entrypoint. Render injects PORT automatically.
+
+services:
+  - type: web
+    name: pixel-champs-server
+    env: node
+    plan: free
+    region: oregon
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: NODE_ENV
+        value: production
