@@ -251,10 +251,26 @@ export class ObstacleField {
       const dl = Math.abs(r.lateral - lat);
       if (dp < 28 && dl < 36) {
         r.addEnergy(35);
-        s.respawnAt = time + 3500;
+        s.respawnAt = time + 5000;
         break;
       }
     }
+  }
+
+  /**
+   * Boolean availability per pickup, in the order pickups appear in
+   * buildObstacleSpecs(). Client tracks pickups in the same order so the
+   * arrays line up index-to-index.
+   */
+  getPickupStates(time: number): boolean[] {
+    const out: boolean[] = [];
+    for (let i = 0; i < this.specs.length; i++) {
+      if (this.specs[i].type !== 'boost') continue;
+      const s = this.state[i];
+      const available = s.respawnAt === undefined || time >= s.respawnAt;
+      out.push(available);
+    }
+    return out;
   }
 }
 

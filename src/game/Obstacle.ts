@@ -95,13 +95,12 @@ export class MudZone extends Obstacle {
 export class EnergyPickup extends Obstacle {
   private sprite: Phaser.GameObjects.Image;
   private available = true;
-  private respawnAt = 0;
 
   constructor(
     scene: Phaser.Scene,
     track: Track,
     progress: number,
-    private lateral: number,
+    lateral: number,
     container: Phaser.GameObjects.Container
   ) {
     super(scene, track, progress, container);
@@ -113,42 +112,41 @@ export class EnergyPickup extends Obstacle {
     container.add(this.sprite);
   }
 
-  update(time: number, racers: Racer[]) {
-    if (!this.available) {
-      if (time >= this.respawnAt) {
-        this.available = true;
-        this.sprite.setAlpha(1);
-        this.sprite.setScale(1);
-      } else {
-        this.sprite.setAlpha(0.25);
-        return;
-      }
+  /**
+   * Driven by server in multiplayer mode. Pop animation on the
+   * available → unavailable transition (a player just grabbed it).
+   */
+  setAvailable(value: boolean) {
+    if (value === this.available) return;
+    this.available = value;
+    if (value) {
+      this.sprite.setVisible(true).setAlpha(1).setScale(0.3);
+      this.scene.tweens.add({
+        targets: this.sprite,
+        scale: 1,
+        duration: 220,
+        ease: 'Back.out'
+      });
+    } else {
+      const sp = this.sprite;
+      this.scene.tweens.add({
+        targets: sp,
+        scale: 1.7,
+        alpha: 0,
+        duration: 220,
+        onComplete: () => sp.setVisible(false).setAlpha(1).setScale(1)
+      });
     }
+  }
 
+  isAvailable(): boolean {
+    return this.available;
+  }
+
+  update(time: number, _racers: Racer[]) {
+    if (!this.available) return;
     const pulse = 1 + Math.sin(time / 180) * 0.08;
     this.sprite.setScale(pulse);
-
-    for (const r of racers) {
-      if (!r.isPlayer || r.finished) continue;
-      const dp = this.track.progressDistance(r.progress, this.progress);
-      const dl = Math.abs(r.lateral - this.lateral);
-      if (dp < 28 && dl < 36) {
-        r.addEnergy(35);
-        this.available = false;
-        this.respawnAt = time + 3500;
-        const sp = this.sprite;
-        this.scene.tweens.add({
-          targets: sp,
-          scale: 1.7,
-          alpha: 0.25,
-          duration: 220,
-          onComplete: () => {
-            sp.setScale(1);
-          }
-        });
-        break;
-      }
-    }
   }
 }
 

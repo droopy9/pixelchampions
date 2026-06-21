@@ -111,18 +111,82 @@ class Music {
     // Kick on every beat
     if (inBar % 4 === 0) this.kick(when);
 
+    // Snare/clap on the 2 and 4 (typical disco backbeat — adds tension)
+    if (inBar === 4 || inBar === 12) this.snare(when);
+
     // Hi-hat on offbeats (extra ghost on 3-and)
     if (inBar % 4 === 2) this.hihat(when, 0.18);
     if (inBar % 8 === 6) this.hihat(when, 0.1);
 
+    // Sub-drone holds for the whole bar — fills the low end with suspense
+    if (inBar === 0) this.subDrone(chord.root / 2, when, SIXTEENTH * 16);
+
     // Bass on every beat (root note)
     if (inBar % 4 === 0) this.bass(chord.root, when, SIXTEENTH * 3.6);
+
+    // Filter swell every 2 bars on the lead
+    if (step % 32 === 28) this.swell(when, SIXTEENTH * 4);
 
     // Lead arpeggio on 8th notes
     if (inBar % 2 === 0) {
       const arpIdx = (inBar / 2) | 0;
       this.lead(chord.arp[arpIdx % 8], when);
     }
+  }
+
+  private snare(t: number) {
+    const ctx = this.ctx!;
+    if (!this.noiseBuffer) return;
+    const src = ctx.createBufferSource();
+    src.buffer = this.noiseBuffer;
+    const bp = ctx.createBiquadFilter();
+    bp.type = 'bandpass';
+    bp.frequency.value = 1800;
+    bp.Q.value = 0.7;
+    const gain = ctx.createGain();
+    gain.gain.setValueAtTime(0.22, t);
+    gain.gain.exponentialRampToValueAtTime(0.001, t + 0.12);
+    src.connect(bp).connect(gain).connect(this.master!);
+    src.start(t);
+    src.stop(t + 0.14);
+  }
+
+  private subDrone(freq: number, t: number, dur: number) {
+    const ctx = this.ctx!;
+    const osc = ctx.createOscillator();
+    osc.type = 'sine';
+    osc.frequency.value = freq;
+    const lp = ctx.createBiquadFilter();
+    lp.type = 'lowpass';
+    lp.frequency.value = 220;
+    const gain = ctx.createGain();
+    gain.gain.setValueAtTime(0.0001, t);
+    gain.gain.exponentialRampToValueAtTime(0.16, t + 0.2);
+    gain.gain.setValueAtTime(0.16, t + dur - 0.2);
+    gain.gain.exponentialRampToValueAtTime(0.001, t + dur);
+    osc.connect(lp).connect(gain).connect(this.master!);
+    osc.start(t);
+    osc.stop(t + dur + 0.1);
+  }
+
+  private swell(t: number, dur: number) {
+    const ctx = this.ctx!;
+    if (!this.noiseBuffer) return;
+    const src = ctx.createBufferSource();
+    src.buffer = this.noiseBuffer;
+    src.loop = true;
+    const bp = ctx.createBiquadFilter();
+    bp.type = 'bandpass';
+    bp.frequency.setValueAtTime(400, t);
+    bp.frequency.exponentialRampToValueAtTime(4500, t + dur);
+    bp.Q.value = 4;
+    const gain = ctx.createGain();
+    gain.gain.setValueAtTime(0.0001, t);
+    gain.gain.exponentialRampToValueAtTime(0.07, t + dur * 0.85);
+    gain.gain.exponentialRampToValueAtTime(0.001, t + dur);
+    src.connect(bp).connect(gain).connect(this.master!);
+    src.start(t);
+    src.stop(t + dur + 0.05);
   }
 
   private kick(t: number) {

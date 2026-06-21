@@ -14,6 +14,12 @@ export interface LobbyState {
   waitTotalMs: number;
   players: LobbyPlayer[];
   maxRacers: number;
+  lastResults?: {
+    winnerName: string;
+    winnerColor: RunnerColor;
+    winnerIsBot: boolean;
+    top3: { name: string; color: RunnerColor; isBot: boolean }[];
+  } | null;
 }
 
 export interface RaceStartPayload {
@@ -49,6 +55,7 @@ export interface RaceTickPayload {
   time: number;
   raceTime: number;
   racers: RacerSnap[];
+  pickups?: boolean[];
 }
 
 export interface RaceEndRanking {

@@ -115,7 +115,19 @@ function broadcastLobby() {
       nickname: p.nickname,
       publicKey: p.publicKey
     })),
-    maxRacers: TOTAL_RACERS
+    maxRacers: TOTAL_RACERS,
+    lastResults: lastResults
+      ? {
+          winnerName: lastResults.winnerName,
+          winnerColor: lastResults.winnerColor,
+          winnerIsBot: lastResults.winnerIsBot,
+          top3: lastResults.ranking.slice(0, 3).map(r => ({
+            name: r.name,
+            color: r.color,
+            isBot: r.isBot
+          }))
+        }
+      : null
   });
 }
 
@@ -172,13 +184,14 @@ function startRace() {
   });
 }
 
-function snapshot(): { time: number; raceTime: number; racers: RacerSnap[] } {
+function snapshot(): { time: number; raceTime: number; racers: RacerSnap[]; pickups: boolean[] } {
   const now = Date.now();
   const raceT = phase === 'racing' ? now - raceStartTime : 0;
-  if (!track) return { time: now, raceTime: raceT, racers: [] };
+  if (!track) return { time: now, raceTime: raceT, racers: [], pickups: [] };
   return {
     time: now,
     raceTime: raceT,
+    pickups: obstacles ? obstacles.getPickupStates(now) : [],
     racers: racers.map(r => ({
       id: r.id,
       name: r.name,

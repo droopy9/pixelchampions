@@ -59,6 +59,7 @@ export class RaceScene extends Phaser.Scene {
   private racerOrderById: string[] = [];
   private localPlayer: RacerView | null = null;
   private obstacles: Obstacle[] = [];
+  private pickups: EnergyPickup[] = [];
 
   private cursors!: Phaser.Types.Input.Keyboard.CursorKeys;
   private wasd!: {
@@ -106,6 +107,7 @@ export class RaceScene extends Phaser.Scene {
     this.racerDots = [];
     this.localPlayer = null;
     this.obstacles = [];
+    this.pickups = [];
     this.raceStarted = false;
     this.shownLap = 0;
     this.lastSprint = false;
@@ -142,6 +144,7 @@ export class RaceScene extends Phaser.Scene {
     socket.removeAllListeners('raceEnd');
 
     socket.on('raceStart', (payload: RaceStartPayload) => {
+      if (!this.scene.isActive()) return;
       this.serverRaceStartTime = payload.raceStartTime;
       this.serverTotalRaceLength = payload.totalRaceLength;
       // Initialise/refresh obstacle "start" so visual timing aligns with server
@@ -153,6 +156,7 @@ export class RaceScene extends Phaser.Scene {
     });
 
     socket.on('raceTick', (payload: RaceTickPayload) => {
+      if (!this.scene.isActive()) return;
       if (!this.raceStarted) {
         // First tick may arrive before raceStart for late joiners
         this.serverRaceStartTime = payload.time - payload.raceTime;
@@ -161,6 +165,11 @@ export class RaceScene extends Phaser.Scene {
         this.raceStarted = true;
         this.waitingText?.destroy();
         this.waitingText = undefined;
+      }
+      if (payload.pickups) {
+        for (let i = 0; i < payload.pickups.length && i < this.pickups.length; i++) {
+          this.pickups[i].setAvailable(payload.pickups[i]);
+        }
       }
       const now = performance.now();
       for (const snap of payload.racers) {
@@ -181,6 +190,7 @@ export class RaceScene extends Phaser.Scene {
     });
 
     socket.on('raceEnd', (payload: RaceEndPayload) => {
+      if (!this.scene.isActive()) return;
       this.registry.set('postRace', true);
       this.scene.start('ResultScene', payload);
     });
@@ -433,6 +443,11 @@ export class RaceScene extends Phaser.Scene {
     this.worldContainer.add(finishG);
   }
 
+  private addPickup(p: EnergyPickup) {
+    this.obstacles.push(p);
+    this.pickups.push(p);
+  }
+
   private spawnObstacles() {
     const cont = this.worldContainer;
     const t = this.track;
@@ -443,12 +458,12 @@ export class RaceScene extends Phaser.Scene {
 
     this.obstacles.push(new MudZone(this, t, 280, LANE_LATERAL[0], 120, 140, cont));
     this.obstacles.push(new Bumper(this, t, 400, LANE_LATERAL[3], cont));
-    this.obstacles.push(new EnergyPickup(this, t, 470, 60, cont));
+    this.addPickup(new EnergyPickup(this, t, 470, 60, cont));
     this.obstacles.push(new Cone(this, t, 540, -20, cont));
 
     this.obstacles.push(new MovingBlock(this, t, 640, 0, 110, 1.7, cont));
     this.obstacles.push(new SpikeTrap(this, t, 780, cont));
-    this.obstacles.push(new EnergyPickup(this, t, 880, LANE_LATERAL[0], cont));
+    this.addPickup(new EnergyPickup(this, t, 880, LANE_LATERAL[0], cont));
 
     this.obstacles.push(new Cone(this, t, 970, -100, cont));
     this.obstacles.push(new Cone(this, t, 1005, -40, cont));
@@ -460,7 +475,7 @@ export class RaceScene extends Phaser.Scene {
     this.obstacles.push(new Bumper(this, t, 1360, LANE_LATERAL[2], cont));
 
     this.obstacles.push(new MudZone(this, t, 1500, LANE_LATERAL[3], 130, 130, cont));
-    this.obstacles.push(new EnergyPickup(this, t, 1620, LANE_LATERAL[2], cont));
+    this.addPickup(new EnergyPickup(this, t, 1620, LANE_LATERAL[2], cont));
     this.obstacles.push(new JumpBarrier(this, t, 1720, cont));
 
     this.obstacles.push(new MovingBlock(this, t, 1820, 40, 140, 2.3, cont));
@@ -469,7 +484,7 @@ export class RaceScene extends Phaser.Scene {
     this.obstacles.push(new Cone(this, t, 1970, 0, cont));
     this.obstacles.push(new Cone(this, t, 2000, -80, cont));
 
-    this.obstacles.push(new EnergyPickup(this, t, 2100, LANE_LATERAL[0], cont));
+    this.addPickup(new EnergyPickup(this, t, 2100, LANE_LATERAL[0], cont));
     this.obstacles.push(new SwingingHammer(this, t, 2300, 160, -220, cont));
 
     this.obstacles.push(new SpikeTrap(this, t, 2460, cont));
@@ -477,7 +492,7 @@ export class RaceScene extends Phaser.Scene {
     this.obstacles.push(new Bumper(this, t, 2620, LANE_LATERAL[0], cont));
 
     this.obstacles.push(new MudZone(this, t, 2780, LANE_LATERAL[1], 110, 130, cont));
-    this.obstacles.push(new EnergyPickup(this, t, 2920, 0, cont));
+    this.addPickup(new EnergyPickup(this, t, 2920, 0, cont));
 
     this.obstacles.push(new MovingBlock(this, t, 3080, -30, 130, 2.0, cont));
     this.obstacles.push(new SpikeTrap(this, t, 3220, cont));
@@ -487,7 +502,7 @@ export class RaceScene extends Phaser.Scene {
     this.obstacles.push(new Cone(this, t, 3550, 60, cont));
     this.obstacles.push(new Cone(this, t, 3580, -60, cont));
 
-    this.obstacles.push(new EnergyPickup(this, t, 3700, LANE_LATERAL[3], cont));
+    this.addPickup(new EnergyPickup(this, t, 3700, LANE_LATERAL[3], cont));
   }
 
   // ---- Input ----

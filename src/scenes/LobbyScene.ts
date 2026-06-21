@@ -21,6 +21,7 @@ export class LobbyScene extends Phaser.Scene {
   private slotsText!: Phaser.GameObjects.Text;
   private subText!: Phaser.GameObjects.Text;
   private playerListText!: Phaser.GameObjects.Text;
+  private lastRaceText!: Phaser.GameObjects.Text;
   private bgPulse?: Phaser.Tweens.Tween;
   private latest: LobbyState | null = null;
   private joined = false;
@@ -142,6 +143,18 @@ export class LobbyScene extends Phaser.Scene {
       })
       .setOrigin(0.5);
 
+    this.lastRaceText = this.add
+      .text(cx, 510, '', {
+        fontFamily: 'monospace',
+        fontSize: '11px',
+        color: '#9bffd0',
+        align: 'center',
+        wordWrap: { width: 440 },
+        stroke: '#000000',
+        strokeThickness: 2
+      })
+      .setOrigin(0.5);
+
     this.add
       .text(cx, VIEW.height - 50, '◆ MULTIPLAYER LOBBY ◆', {
         fontFamily: 'monospace',
@@ -193,16 +206,15 @@ export class LobbyScene extends Phaser.Scene {
 
     socket.off('lobbyState');
     socket.on('lobbyState', (state: LobbyState) => {
+      // If this scene isn't the active one, ignore — we're a stale listener
+      // (singleton socket survives scene transitions).
+      if (!this.scene.isActive()) return;
       this.latest = state;
       const prev = this.lastPhase;
       this.lastPhase = state.phase;
-      // Only transition to the race if we were waiting in the lobby when
-      // the next countdown began. Late joiners (mid-race) stay here.
       if (prev === 'lobby' && state.phase === 'countdown') {
         this.scene.start('RaceScene');
       } else if (prev === null && state.phase === 'countdown') {
-        // Connected right at countdown — still join (server includes everyone
-        // who was already in the player map).
         this.scene.start('RaceScene');
       }
     });
@@ -245,6 +257,19 @@ export class LobbyScene extends Phaser.Scene {
         .map(p => `${p.nickname}`)
         .join('  ·  ');
       this.playerListText.setText(list ? `In lobby:  ${list}` : 'Waiting for players to join…');
+
+      if (this.latest.lastResults) {
+        const lr = this.latest.lastResults;
+        const winnerTag = lr.winnerIsBot ? '(bot)' : '★';
+        const top = lr.top3
+          .map((r, i) => `${i + 1}. ${r.name}${r.isBot ? '*' : ''}`)
+          .join('   ');
+        this.lastRaceText.setText(
+          `LAST RACE  —  WINNER: ${lr.winnerName} ${winnerTag}\n${top}`
+        );
+      } else {
+        this.lastRaceText.setText('');
+      }
     }
 
     const frame = Math.floor(time / 90) % 2;
