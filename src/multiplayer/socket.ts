@@ -5,6 +5,9 @@ export interface LobbyPlayer {
   id: string;
   nickname: string;
   publicKey: string;
+  // null if the player is connected; otherwise ms left before their seat is
+  // released and (if mid-race) handed to the bot AI.
+  disconnectedRemainingMs: number | null;
 }
 
 export interface LobbyState {
@@ -76,9 +79,26 @@ export interface RaceEndPayload {
   winnerIsBot: boolean;
 }
 
+const PLAYER_ID_KEY = 'pc.playerId';
+
+function getOrCreatePlayerId(): string {
+  try {
+    const existing = localStorage.getItem(PLAYER_ID_KEY);
+    if (existing) return existing;
+    const fresh = (typeof crypto !== 'undefined' && 'randomUUID' in crypto)
+      ? crypto.randomUUID()
+      : `p_${Math.random().toString(36).slice(2)}${Date.now().toString(36)}`;
+    localStorage.setItem(PLAYER_ID_KEY, fresh);
+    return fresh;
+  } catch {
+    // localStorage unavailable (private mode etc.); fall back to ephemeral id
+    return `p_${Math.random().toString(36).slice(2)}${Date.now().toString(36)}`;
+  }
+}
+
 class GameSocket {
   socket: Socket | null = null;
-  myId: string | null = null;
+  myId: string = getOrCreatePlayerId();
 
   connect(): Socket {
     if (this.socket) return this.socket;
@@ -87,7 +107,6 @@ class GameSocket {
     const opts = { transports: ['websocket', 'polling'], reconnection: true };
     this.socket = serverUrl ? io(serverUrl, opts) : io(opts);
     this.socket.on('connect', () => {
-      this.myId = this.socket?.id ?? null;
       console.log('[socket] connected', this.myId, 'via', serverUrl ?? 'same-origin');
     });
     this.socket.on('disconnect', () => {
@@ -97,7 +116,7 @@ class GameSocket {
   }
 
   joinLobby(nickname: string, publicKey: string) {
-    this.connect().emit('joinLobby', { nickname, publicKey });
+    this.connect().emit('joinLobby', { playerId: this.myId, nickname, publicKey });
   }
 
   sendInput(input: {

@@ -218,6 +218,14 @@ export class LobbyScene extends Phaser.Scene {
         this.scene.start('RaceScene');
       }
     });
+
+    // Mid-race reconnect: server tells us to jump straight into the race we
+    // were already running in (slot held by RECONNECT_GRACE_MS).
+    socket.off('resumeRace');
+    socket.on('resumeRace', () => {
+      if (!this.scene.isActive()) return;
+      this.scene.start('RaceScene');
+    });
   }
 
   update(time: number) {
@@ -248,13 +256,18 @@ export class LobbyScene extends Phaser.Scene {
         this.subText.setColor('#ffaa33');
       }
 
-      const real = this.latest.players.length;
+      const active = this.latest.players.filter(p => p.disconnectedRemainingMs === null);
+      const real = active.length;
       const max = this.latest.maxRacers;
       const bots = Math.max(0, max - real);
       this.slotsText.setText(`Players: ${real} / ${max}  ·  ${bots} bot slots`);
 
       const list = this.latest.players
-        .map(p => `${p.nickname}`)
+        .map(p => {
+          if (p.disconnectedRemainingMs === null) return p.nickname;
+          const secs = Math.ceil(p.disconnectedRemainingMs / 1000);
+          return `${p.nickname} (reconnecting ${secs}s)`;
+        })
         .join('  ·  ');
       this.playerListText.setText(list ? `In lobby:  ${list}` : 'Waiting for players to join…');
 

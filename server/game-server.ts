@@ -27,16 +27,31 @@ interface ConnectedPlayer {
   id: string;
   nickname: string;
   publicKey: string;
+  socketId: string | null;
+  disconnectedAt: number | null;
 }
 
+// How long a player's slot is held after a disconnect before we drop them
+// and (if mid-race) hand their racer to the bot AI.
+const RECONNECT_GRACE_MS = 15_000;
+
 const app = express();
-app.get('/health', (_req, res) => res.json({ ok: true, phase, players: players.size }));
+app.get('/health', (_req, res) => res.json({ ok: true, phase, players: activePlayerCount() }));
 const httpServer = createServer(app);
 const io = new Server(httpServer, {
   cors: { origin: '*' }
 });
 
+// Keyed by stable playerId (sent by client, persisted in their localStorage).
 const players = new Map<string, ConnectedPlayer>();
+// Reverse lookup so input/disconnect handlers can go socket.id → playerId.
+const socketToPlayer = new Map<string, string>();
+
+function activePlayerCount(): number {
+  let n = 0;
+  for (const p of players.values()) if (p.socketId !== null) n++;
+  return n;
+}
 let phase: Phase = 'lobby';
 let lobbyEndsAt = Date.now() + LOBBY_FIRST_MS;
 let countdownStart = 0;
@@ -104,7 +119,8 @@ function estimateNextRaceAt(): number {
 }
 
 function broadcastLobby() {
-  const remaining = Math.max(0, lobbyEndsAt - Date.now());
+  const now = Date.now();
+  const remaining = Math.max(0, lobbyEndsAt - now);
   io.emit('lobbyState', {
     phase,
     remainingMs: remaining,
@@ -113,7 +129,10 @@ function broadcastLobby() {
     players: Array.from(players.values()).map(p => ({
       id: p.id,
       nickname: p.nickname,
-      publicKey: p.publicKey
+      publicKey: p.publicKey,
+      disconnectedRemainingMs: p.disconnectedAt === null
+        ? null
+        : Math.max(0, RECONNECT_GRACE_MS - (now - p.disconnectedAt))
     })),
     maxRacers: TOTAL_RACERS,
     lastResults: lastResults
@@ -256,54 +275,111 @@ function returnToLobby() {
 }
 
 io.on('connection', (socket: Socket) => {
-  console.log(`[connect] ${socket.id}`);
+  console.log(`[connect] socket=${socket.id}`);
 
-  socket.on('joinLobby', (data: { nickname?: string; publicKey?: string }) => {
+  socket.on('joinLobby', (data: { playerId?: string; nickname?: string; publicKey?: string }) => {
+    const playerId = (data?.playerId && typeof data.playerId === 'string')
+      ? data.playerId.slice(0, 64)
+      : socket.id;
     const nickname = (data?.nickname ?? 'Player').slice(0, 12).toUpperCase() || 'PLAYER';
     const publicKey = (data?.publicKey ?? '').slice(0, 48);
-    if (players.has(socket.id)) {
-      const existing = players.get(socket.id)!;
+
+    // If this socket was previously bound to a different playerId, unbind it.
+    const previous = socketToPlayer.get(socket.id);
+    if (previous && previous !== playerId) {
+      const prevPlayer = players.get(previous);
+      if (prevPlayer && prevPlayer.socketId === socket.id) {
+        prevPlayer.socketId = null;
+        prevPlayer.disconnectedAt = Date.now();
+      }
+    }
+
+    const existing = players.get(playerId);
+    if (existing) {
+      // Reconnect (or duplicate tab): adopt this socket, clear disconnect grace.
+      if (existing.socketId && existing.socketId !== socket.id) {
+        // Old socket is being replaced; let it know it lost the seat.
+        io.to(existing.socketId).emit('joinRejected', { reason: 'Replaced by another session' });
+        socketToPlayer.delete(existing.socketId);
+      }
+      existing.socketId = socket.id;
+      existing.disconnectedAt = null;
       existing.nickname = nickname;
       existing.publicKey = publicKey;
     } else {
-      if (players.size >= TOTAL_RACERS) {
+      if (activePlayerCount() >= TOTAL_RACERS) {
         socket.emit('joinRejected', { reason: 'Lobby full' });
         return;
       }
-      players.set(socket.id, { id: socket.id, nickname, publicKey });
+      players.set(playerId, {
+        id: playerId,
+        nickname,
+        publicKey,
+        socketId: socket.id,
+        disconnectedAt: null
+      });
     }
-    socket.emit('joinAccepted', { id: socket.id });
+    socketToPlayer.set(socket.id, playerId);
+    socket.emit('joinAccepted', { id: playerId });
+
+    // If a race is already running and this player still has a (non-bot) racer
+    // in it — i.e. they reconnected inside the grace window — tell *only this
+    // socket* to jump straight into RaceScene. The next raceTick (broadcast at
+    // TICK_HZ) will populate racers via the existing late-joiner code path.
+    if (phase === 'racing' && racers.some(r => r.id === playerId && !r.isBot)) {
+      socket.emit('resumeRace');
+    }
+
     broadcastLobby();
   });
 
   socket.on('input', (data: RacerInput) => {
     if (phase !== 'racing') return;
-    if (!players.has(socket.id)) return;
-    const prev = pendingInputs.get(socket.id) ?? {};
-    pendingInputs.set(socket.id, { ...prev, ...data });
+    const playerId = socketToPlayer.get(socket.id);
+    if (!playerId) return;
+    const prev = pendingInputs.get(playerId) ?? {};
+    pendingInputs.set(playerId, { ...prev, ...data });
   });
 
   socket.on('disconnect', () => {
-    console.log(`[disconnect] ${socket.id}`);
-    players.delete(socket.id);
-    pendingInputs.delete(socket.id);
-    if (phase === 'racing') {
-      const r = racers.find(rc => rc.id === socket.id);
-      if (r) {
-        // Convert the player to a bot so the race continues smoothly.
-        r.isBot = true;
-        r.name = `${r.name} (left)`;
-      }
+    const playerId = socketToPlayer.get(socket.id);
+    socketToPlayer.delete(socket.id);
+    console.log(`[disconnect] socket=${socket.id} player=${playerId ?? '-'}`);
+    if (!playerId) return;
+    const p = players.get(playerId);
+    if (p && p.socketId === socket.id) {
+      // Hold the slot for RECONNECT_GRACE_MS. Pruner will bot-ify if not back.
+      p.socketId = null;
+      p.disconnectedAt = Date.now();
     }
     broadcastLobby();
   });
 });
+
+function pruneDisconnected(now: number) {
+  for (const [id, p] of players) {
+    if (p.disconnectedAt === null) continue;
+    if (now - p.disconnectedAt < RECONNECT_GRACE_MS) continue;
+    // Grace expired — drop the player and, if mid-race, hand off to bot AI.
+    players.delete(id);
+    pendingInputs.delete(id);
+    if (phase === 'racing') {
+      const r = racers.find(rc => rc.id === id);
+      if (r && !r.isBot) {
+        r.isBot = true;
+        r.name = `${r.name} (left)`;
+      }
+    }
+  }
+}
 
 let lastTick = Date.now();
 setInterval(() => {
   const now = Date.now();
   const dt = now - lastTick;
   lastTick = now;
+
+  pruneDisconnected(now);
 
   if (phase === 'lobby') {
     if (now >= lobbyEndsAt) startCountdown();
@@ -341,9 +417,18 @@ setInterval(() => {
     if (allDone || tooLong || (localFinished && now - raceStartTime > (racers.find(r => !r.isBot && r.finished)!.finishTime! - raceStartTime) + 2000)) {
       finishRace();
     } else if (!localPlayerExists) {
-      // No human left; end whenever leader finishes.
+      // No human left in the race. Two exit paths:
+      //   1. A leader has finished → run results normally so anyone watching
+      //      from the lobby sees a clean wrap-up.
+      //   2. Nobody finished AND nobody is even in the lobby map → abandon
+      //      silently rather than letting bots play out a 3-min cap to no one.
       const leaderFinished = racers.some(r => r.finished);
-      if (leaderFinished && now - raceStartTime > 5_000) finishRace();
+      if (leaderFinished && now - raceStartTime > 5_000) {
+        finishRace();
+      } else if (players.size === 0 && now - raceStartTime > 5_000) {
+        console.log('[race] abandoned — no humans remain');
+        returnToLobby();
+      }
     }
   } else if (phase === 'results') {
     if (now >= resultEndsAt) returnToLobby();
